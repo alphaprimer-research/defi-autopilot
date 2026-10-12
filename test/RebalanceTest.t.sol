@@ -28,7 +28,7 @@ contract RebalanceTest is Test {
         AlphaPrimerVault impl = new AlphaPrimerVault();
         bytes memory initData = abi.encodeCall(
             AlphaPrimerVault.initialize,
-            (USDC, owner, strategist, AAVE, AUSDC, COMPOUND, FLUID, GAINS, 1000, 100)
+            (USDC, owner, strategist, AAVE, AUSDC, COMPOUND, FLUID, 1000, 100)
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
         vault = AlphaPrimerVault(address(proxy));
