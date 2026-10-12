@@ -118,15 +118,15 @@ contract AlphaPrimerVault is
     function harvest() external onlyOwner {
         uint256 gross = aToken.balanceOf(address(this))
                       + underlying.balanceOf(address(this));
-        uint256 net = totalAssets();
+        uint256 owed = totalSupply() + accruedFees; // what we owe users + pending fees
 
-        if (gross <= net + accruedFees) return;
+        if (gross <= owed) return;
 
-        uint256 yield_ = gross - net - accruedFees;
+        uint256 yield_ = gross - owed;
         uint256 pFee = (yield_ * perfFeeBps) / BPS;
 
         uint256 dt = block.timestamp - lastHarvest;
-        uint256 mFee = (net * mgmtFeeBps * dt) / (BPS * 365 days);
+        uint256 mFee = (totalSupply() * mgmtFeeBps * dt) / (BPS * 365 days);
 
         accruedFees += pFee + mFee;
         lastHarvest = block.timestamp;
@@ -178,7 +178,12 @@ contract AlphaPrimerVault is
     function _ensureLiquidity(uint256 needed) internal {
         uint256 idle = underlying.balanceOf(address(this));
         if (idle < needed) {
-            pool.withdraw(address(underlying), needed - idle, address(this));
+            uint256 gap = needed - idle;
+            uint256 aaveBal = aToken.balanceOf(address(this));
+            uint256 toWithdraw = gap > aaveBal ? aaveBal : gap;
+            if (toWithdraw > 0) {
+                pool.withdraw(address(underlying), toWithdraw, address(this));
+            }
         }
     }
 
