@@ -1,0 +1,9 @@
+{
+  "arbitrum": {
+    "chainId": 42161,
+    "usdc": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+    "aavePool": "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
+    "aUSDC": "0x625E7708f30cA75bfd92586e17077590C60eb4cD",
+    "rpc": "https://arb1.arbitrum.io/rpc"
+  }
+}
