@@ -31,7 +31,7 @@ interface IScaledBalance {
     function balanceOf(address user) external view returns (uint256);
 }
 
-/// @title AlphaPrimer Multi-Strategy Yield Vault
+/// @title AlphaPrimer Multi-Strategy Yield Vault v3.1
 /// @notice Routes USDC to the highest-yielding protocol among
 ///         Aave V3, Compound V3, and Fluid on Arbitrum.
 /// @dev Owner = TimelockController behind 4/5 multi-sig.
@@ -56,16 +56,18 @@ contract AlphaPrimerVault is
 
     uint256 public lastHarvest;
     uint256 public accruedFees;
-    uint256 public highWaterMark; // assets at last harvest — for accurate yield calc
+    uint256 public highWaterMark;
     bool public depositsPaused;
 
-    // active protocol: 0=idle, 1=aave, 2=compound, 3=fluid
-    uint8 public activeProtocol;
+    uint8 public activeProtocol; // 0=idle, 1=aave, 2=compound, 3=fluid
 
     IAavePool public aavePool;
     IScaledBalance public aaveAToken;
     IComet public compound;
     IFluidVault public fluid;
+
+    /// @dev R5: storage gap for future upgrades
+    uint256[40] private __gap;
 
     event Harvest(uint256 yield, uint256 fee);
     event FeesCollected(uint256 amount);
@@ -123,6 +125,9 @@ contract AlphaPrimerVault is
 
     // ── views ───────────────────────────────────────
 
+    /// @dev R1: decimals offset prevents donation-based inflation attack
+    function _decimalsOffset() internal pure override returns (uint8) { return 3; }
+
     function totalAssets() public view override returns (uint256) {
         uint256 gross = _protocolBalance() + underlying.balanceOf(address(this));
         return gross > accruedFees ? gross - accruedFees : 0;
@@ -135,7 +140,7 @@ contract AlphaPrimerVault is
         return 0;
     }
 
-    function version() external pure returns (string memory) { return "3.0.0"; }
+    function version() external pure returns (string memory) { return "3.1.0"; }
 
     // ── user actions ────────────────────────────────
 
@@ -153,6 +158,7 @@ contract AlphaPrimerVault is
         require(!depositsPaused, "deposits paused");
         require(assets >= MIN_DEPOSIT, "below minimum");
         uint256 shares = super.deposit(assets, receiver);
+        require(shares > 0, "zero shares"); // R1: prevent donation grief
         _supplyToActive(assets);
         highWaterMark += assets;
         return shares;
@@ -164,17 +170,17 @@ contract AlphaPrimerVault is
         require(!depositsPaused, "deposits paused");
         uint256 assets = previewMint(shares);
         require(assets >= MIN_DEPOSIT, "below minimum");
-        uint256 actualShares = super.mint(shares, receiver);
-        _supplyToActive(assets);
-        highWaterMark += assets;
-        return actualShares;
+        uint256 actualAssets = super.mint(shares, receiver);
+        require(actualAssets > 0, "zero assets"); // R1
+        _supplyToActive(actualAssets);
+        highWaterMark += actualAssets;
+        return actualAssets;
     }
 
     function withdraw(uint256 assets, address receiver, address o)
         public override nonReentrant returns (uint256)
     {
         _ensureLiquidity(assets);
-        // adjust high water mark proportionally
         uint256 ta = totalAssets();
         if (ta > 0) highWaterMark = highWaterMark * (ta - assets) / ta;
         return super.withdraw(assets, receiver, o);
@@ -192,7 +198,7 @@ contract AlphaPrimerVault is
 
     // ── strategy (strategist or owner) ──────────────
 
-    function rebalanceTo(uint8 toProtocol) external onlyStrategistOrOwner {
+    function rebalanceTo(uint8 toProtocol) external onlyStrategistOrOwner nonReentrant {
         require(toProtocol >= 1 && toProtocol <= 3, "invalid protocol");
         require(toProtocol != activeProtocol, "already active");
 
@@ -204,11 +210,8 @@ contract AlphaPrimerVault is
         emit Rebalanced(from, toProtocol, bal);
     }
 
-    /// @notice Harvest yield above high water mark and accrue fees.
-    ///         Uses NAV (net-of-fees) for both yield measurement and HWM update
-    ///         to prevent fee-on-fee compounding.
-    function harvest() external onlyStrategistOrOwner {
-        uint256 nav = totalAssets(); // already net of accruedFees
+    function harvest() public onlyStrategistOrOwner nonReentrant {
+        uint256 nav = totalAssets();
         if (nav <= highWaterMark) return;
 
         uint256 yield_ = nav - highWaterMark;
@@ -218,15 +221,15 @@ contract AlphaPrimerVault is
         uint256 mFee = (nav * mgmtFeeBps * dt) / (BPS * 365 days);
 
         uint256 take = pFee + mFee;
-        if (take > nav) take = nav; // never exceed available assets
+        if (take > nav) take = nav;
         accruedFees += take;
-        highWaterMark = totalAssets(); // NAV after booking fees
+        highWaterMark = totalAssets();
         lastHarvest = block.timestamp;
 
         emit Harvest(yield_, take);
     }
 
-    function collectFees() external onlyOwner {
+    function collectFees() external onlyOwner nonReentrant {
         uint256 amt = accruedFees;
         require(amt > 0, "no fees");
         accruedFees = 0;
@@ -235,7 +238,7 @@ contract AlphaPrimerVault is
         emit FeesCollected(amt);
     }
 
-    function deployIdle() external onlyStrategistOrOwner {
+    function deployIdle() external onlyStrategistOrOwner nonReentrant {
         uint256 idle = underlying.balanceOf(address(this));
         if (idle > accruedFees) {
             _supplyToActive(idle - accruedFees);
@@ -245,6 +248,7 @@ contract AlphaPrimerVault is
     // ── admin (owner only) ──────────────────────────
 
     function setStrategist(address s) external onlyOwner {
+        require(s != address(0), "zero strategist"); // R4
         emit StrategistUpdated(strategist, s);
         strategist = s;
     }
@@ -254,15 +258,17 @@ contract AlphaPrimerVault is
         emit DepositsPaused(v);
     }
 
-    function emergencyExit() external onlyOwner {
+    function emergencyExit() external onlyOwner nonReentrant {
         _withdrawAll();
         depositsPaused = true;
         activeProtocol = 0;
         emit DepositsPaused(true);
     }
 
+    /// @dev R2: harvest before fee change to lock in pending yield at old rate
     function setFees(uint256 perf, uint256 mgmt) external onlyOwner {
         require(perf <= MAX_PERF_FEE && mgmt <= MAX_MGMT_FEE, "fee cap");
+        if (totalSupply() > 0) harvest(); // R2: settle pending yield first
         perfFeeBps = perf;
         mgmtFeeBps = mgmt;
         emit FeesUpdated(perf, mgmt);
@@ -311,7 +317,6 @@ contract AlphaPrimerVault is
                 if (redeemable <= gap) {
                     fluid.redeem(bal, address(this), address(this));
                 } else {
-                    // partial: estimate shares needed
                     uint256 sharesToRedeem = bal * gap / redeemable;
                     if (sharesToRedeem > 0) fluid.redeem(sharesToRedeem, address(this), address(this));
                 }
