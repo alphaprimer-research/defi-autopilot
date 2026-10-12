@@ -1,13 +1,21 @@
 # AlphaPrimer DeFi Autopilot
 
-ERC-4626 yield vault on Arbitrum. Deposits USDC into Aave V3 and auto-compounds yield.
+Multi-strategy ERC-4626 yield vault on Arbitrum. Routes USDC to the highest-yielding protocol among Aave V3, Compound V3, and Fluid.
 
 ## Architecture
 
 - **Vault**: UUPS-upgradeable ERC-4626 (`apUSDC` shares)
-- **Strategy**: Aave V3 USDC lending
-- **Access**: Owner expected to be `TimelockController` behind a 4/5 multi-sig
-- **Fees**: 10% performance + 1% annual management (capped in contract)
+- **Protocols**: Aave V3, Compound V3 (Comet), Fluid (fUSDC)
+- **Access**: Owner (TimelockController + 4/5 multi-sig) + Strategist (bot, rebalance only)
+- **Fees**: Performance (max 20%) + Management (max 2%), high-water-mark based
+- **Safety**: Non-custodial, emergency exit, MIN_DEPOSIT, reentrancy guard
+
+## Fee Accounting
+
+Uses a **high-water-mark** model:
+- `highWaterMark` records total assets at the last harvest
+- Yield = current assets − high-water-mark (only genuine new yield is taxed)
+- Deposits/withdrawals adjust the high-water-mark proportionally
 
 ## Quick Start
 
@@ -17,27 +25,34 @@ forge build
 forge test --fork-url https://arb1.arbitrum.io/rpc -vvv
 ```
 
+## Test Coverage
+
+35 tests across 3 suites, all on Arbitrum fork with real protocol state:
+- **AlphaPrimerVault.t.sol**: deposit, withdraw, yield, harvest, access control
+- **VaultEdgeCases.t.sol**: zero deposit, dust, large amounts, multi-user, pause, inflation attack
+- **RebalanceTest.t.sol**: per-protocol deposit/yield/withdraw, cross-protocol rotation
+
+## Contracts
+
+| File | Description |
+|------|-------------|
+| `src/AlphaPrimerVault.sol` | Core vault — multi-protocol routing + fee logic |
+| `script/Deploy.s.sol` | UUPS proxy deployment on Arbitrum |
+
 ## Deployments
 
 | Network | Proxy | Implementation |
 |---------|-------|----------------|
 | Arbitrum | TBD | TBD |
 
-## Contracts
-
-| File | Description |
-|------|-------------|
-| `src/AlphaPrimerVault.sol` | Core vault logic |
-| `script/Deploy.s.sol` | Deployment script |
-| `test/AlphaPrimerVault.t.sol` | Fork-based integration tests |
-
 ## Security
 
 - OpenZeppelin v5.7 (ERC-4626, UUPS, Ownable)
 - Reentrancy protection via transient storage
 - Fee caps hardcoded (max 20% perf, 2% mgmt)
-- Emergency exit withdraws all from Aave, pauses deposits
-- Users can always withdraw regardless of vault state
+- High-water-mark prevents fee-on-fee compounding
+- Emergency exit withdraws all, pauses deposits, users can still redeem
+- Strategist can only rebalance — cannot withdraw, upgrade, or change fees
 
 ## License
 

@@ -9,8 +9,6 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-// ── protocol interfaces ────────────────────────────
-
 interface IAavePool {
     function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
     function withdraw(address asset, uint256 amount, address to) external returns (uint256);
@@ -29,20 +27,13 @@ interface IFluidVault {
     function previewRedeem(uint256 shares) external view returns (uint256);
 }
 
-interface IGainsVault {
-    function deposit(uint256 assets, address receiver) external returns (uint256);
-    function redeem(uint256 shares, address receiver, address owner_) external returns (uint256);
-    function balanceOf(address account) external view returns (uint256);
-    function previewRedeem(uint256 shares) external view returns (uint256);
-}
-
 interface IScaledBalance {
     function balanceOf(address user) external view returns (uint256);
 }
 
 /// @title AlphaPrimer Multi-Strategy Yield Vault
 /// @notice Routes USDC to the highest-yielding protocol among
-///         Aave V3, Compound V3, Morpho Blue, Fluid, and Gains Network
+///         Aave V3, Compound V3, and Fluid on Arbitrum.
 /// @dev Owner = TimelockController behind 4/5 multi-sig.
 ///      Strategist = bot wallet with limited rebalance-only access.
 contract AlphaPrimerVault is
@@ -52,8 +43,6 @@ contract AlphaPrimerVault is
     ReentrancyGuardTransient
 {
     using SafeERC20 for IERC20;
-
-    // ── state ───────────────────────────────────────
 
     IERC20 public underlying;
     address public strategist;
@@ -67,27 +56,22 @@ contract AlphaPrimerVault is
 
     uint256 public lastHarvest;
     uint256 public accruedFees;
+    uint256 public highWaterMark; // assets at last harvest — for accurate yield calc
     bool public depositsPaused;
 
-    // active protocol: 0=idle, 1=aave, 2=compound, 3=fluid, 4=reserved
+    // active protocol: 0=idle, 1=aave, 2=compound, 3=fluid
     uint8 public activeProtocol;
 
-    // protocol addresses
     IAavePool public aavePool;
     IScaledBalance public aaveAToken;
     IComet public compound;
     IFluidVault public fluid;
-    IGainsVault public gains;
-
-    // ── events ──────────────────────────────────────
 
     event Harvest(uint256 yield, uint256 fee);
     event FeesCollected(uint256 amount);
     event DepositsPaused(bool state);
     event Rebalanced(uint8 fromProtocol, uint8 toProtocol, uint256 amount);
     event StrategistUpdated(address indexed prev, address indexed next);
-
-    // ── modifiers ───────────────────────────────────
 
     modifier onlyStrategistOrOwner() {
         require(msg.sender == strategist || msg.sender == owner(), "not authorized");
@@ -105,7 +89,6 @@ contract AlphaPrimerVault is
         address aaveAToken_,
         address compound_,
         address fluid_,
-        address gains_,
         uint256 perfFee_,
         uint256 mgmtFee_
     ) external initializer {
@@ -120,18 +103,16 @@ contract AlphaPrimerVault is
         aaveAToken = IScaledBalance(aaveAToken_);
         compound = IComet(compound_);
         fluid = IFluidVault(fluid_);
-        gains = IGainsVault(gains_);
 
         perfFeeBps = perfFee_;
         mgmtFeeBps = mgmtFee_;
         lastHarvest = block.timestamp;
-        activeProtocol = 1; // start with Aave
+        highWaterMark = 0;
+        activeProtocol = 1;
 
-        // approve all protocols
         underlying.approve(aavePool_, type(uint256).max);
         underlying.approve(compound_, type(uint256).max);
         underlying.approve(fluid_, type(uint256).max);
-        underlying.approve(gains_, type(uint256).max);
     }
 
     // ── views ───────────────────────────────────────
@@ -144,11 +125,10 @@ contract AlphaPrimerVault is
         if (activeProtocol == 1) return aaveAToken.balanceOf(address(this));
         if (activeProtocol == 2) return compound.balanceOf(address(this));
         if (activeProtocol == 3) return fluid.previewRedeem(fluid.balanceOf(address(this)));
-        if (activeProtocol == 4) return gains.previewRedeem(gains.balanceOf(address(this)));
         return 0;
     }
 
-    function version() external pure returns (string memory) { return "2.0.0"; }
+    function version() external pure returns (string memory) { return "3.0.0"; }
 
     // ── user actions ────────────────────────────────
 
@@ -159,6 +139,8 @@ contract AlphaPrimerVault is
         require(assets >= MIN_DEPOSIT, "below minimum");
         uint256 shares = super.deposit(assets, receiver);
         _supplyToActive(assets);
+        // update high water mark with new deposits
+        highWaterMark += assets;
         return shares;
     }
 
@@ -166,6 +148,9 @@ contract AlphaPrimerVault is
         public override nonReentrant returns (uint256)
     {
         _ensureLiquidity(assets);
+        // adjust high water mark proportionally
+        uint256 ta = totalAssets();
+        if (ta > 0) highWaterMark = highWaterMark * (ta - assets) / ta;
         return super.withdraw(assets, receiver, o);
     }
 
@@ -174,6 +159,8 @@ contract AlphaPrimerVault is
     {
         uint256 assets = previewRedeem(shares);
         _ensureLiquidity(assets);
+        uint256 ta = totalAssets();
+        if (ta > 0) highWaterMark = highWaterMark * (ta - assets) / ta;
         return super.redeem(shares, receiver, o);
     }
 
@@ -191,19 +178,19 @@ contract AlphaPrimerVault is
         emit Rebalanced(from, toProtocol, bal);
     }
 
+    /// @notice Harvest yield above high water mark and accrue fees
     function harvest() external onlyStrategistOrOwner {
-        uint256 gross = _protocolBalance() + underlying.balanceOf(address(this));
-        uint256 owed = totalSupply() + accruedFees;
+        uint256 currentAssets = totalAssets() + accruedFees; // gross assets
+        if (currentAssets <= highWaterMark) return; // no new yield
 
-        if (gross <= owed) return;
-
-        uint256 yield_ = gross - owed;
+        uint256 yield_ = currentAssets - highWaterMark;
         uint256 pFee = (yield_ * perfFeeBps) / BPS;
 
         uint256 dt = block.timestamp - lastHarvest;
-        uint256 mFee = (totalSupply() * mgmtFeeBps * dt) / (BPS * 365 days);
+        uint256 mFee = (currentAssets * mgmtFeeBps * dt) / (BPS * 365 days);
 
         accruedFees += pFee + mFee;
+        highWaterMark = currentAssets - accruedFees; // reset to post-fee level
         lastHarvest = block.timestamp;
 
         emit Harvest(yield_, pFee + mFee);
@@ -257,7 +244,6 @@ contract AlphaPrimerVault is
         if (activeProtocol == 1) aavePool.supply(address(underlying), amt, address(this), 0);
         else if (activeProtocol == 2) compound.supply(address(underlying), amt);
         else if (activeProtocol == 3) fluid.deposit(amt, address(this));
-        else if (activeProtocol == 4) gains.deposit(amt, address(this));
     }
 
     function _withdrawAll() internal returns (uint256) {
@@ -271,9 +257,6 @@ contract AlphaPrimerVault is
         } else if (activeProtocol == 3) {
             uint256 bal = fluid.balanceOf(address(this));
             if (bal > 0) fluid.redeem(bal, address(this), address(this));
-        } else if (activeProtocol == 4) {
-            uint256 bal = gains.balanceOf(address(this));
-            if (bal > 0) gains.redeem(bal, address(this), address(this));
         }
         return underlying.balanceOf(address(this)) - before;
     }
@@ -291,12 +274,8 @@ contract AlphaPrimerVault is
             uint256 w = gap > bal ? bal : gap;
             if (w > 0) compound.withdraw(address(underlying), w);
         } else if (activeProtocol == 3) {
-            // approximate shares needed
             uint256 bal = fluid.balanceOf(address(this));
             if (bal > 0) fluid.redeem(bal, address(this), address(this));
-        } else if (activeProtocol == 4) {
-            uint256 bal = gains.balanceOf(address(this));
-            if (bal > 0) gains.redeem(bal, address(this), address(this));
         }
     }
 

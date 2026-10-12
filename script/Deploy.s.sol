@@ -11,8 +11,7 @@ contract DeployVault is Script {
     address constant AAVE_POOL = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
     address constant AUSDC     = 0x724dc807b04555b71ed48a6896b6F41593b8C637;
     address constant COMPOUND  = 0x9c4ec768c28520B50860ea7a15bd7213a9fF58bf;
-    address constant FLUID     = 0x1A996cb54bb95462040408C06122D45D6Cdb6096;
-    address constant GAINS     = 0xd3443ee1e91aF28e5FB858Fbd0D72A63bA8046E0;
+    address constant FLUID     = 0x1A996cb54bb95462040408C06122D45D6Cdb6096; // fUSDC ERC4626
 
     function run() external {
         address owner      = vm.envAddress("OWNER");
@@ -25,7 +24,7 @@ contract DeployVault is Script {
         bytes memory initData = abi.encodeCall(
             AlphaPrimerVault.initialize,
             (USDC, owner, strategist, AAVE_POOL, AUSDC,
-             COMPOUND, FLUID, GAINS, 1000, 100)
+             COMPOUND, FLUID, 1000, 100)
         );
 
         new ERC1967Proxy(address(impl), initData);
