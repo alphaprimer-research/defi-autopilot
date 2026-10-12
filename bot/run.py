@@ -89,6 +89,7 @@ def main():
     rpc = os.environ.get("RPC_URL", "https://arb1.arbitrum.io/rpc")
     tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     tg_chat = os.environ.get("TELEGRAM_CHAT_ID", "")
+    tg_thread = os.environ.get("TELEGRAM_THREAD_ID", "")
 
     if not vault_addr or not strat_pk:
         log.error("Set VAULT_ADDRESS and STRATEGIST_PK in .env")
@@ -97,7 +98,7 @@ def main():
     dry_run = "--dry-run" in sys.argv
 
     vault = VaultOperator(rpc, vault_addr, strat_pk)
-    alert = TelegramAlert(tg_token, tg_chat)
+    alert = TelegramAlert(tg_token, tg_chat, tg_thread or None)
 
     state = vault.log_state()
     if not dry_run:

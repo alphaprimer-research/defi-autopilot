@@ -1,5 +1,6 @@
 """
 Telegram alerts for vault bot.
+Sends to a topic thread in a private group.
 """
 
 import urllib.request
@@ -10,9 +11,10 @@ log = logging.getLogger("alerts")
 
 
 class TelegramAlert:
-    def __init__(self, token, chat_id):
+    def __init__(self, token, chat_id, thread_id=None):
         self.token = token
         self.chat_id = chat_id
+        self.thread_id = thread_id
         self.enabled = bool(token and chat_id)
 
     def send(self, msg):
@@ -20,9 +22,10 @@ class TelegramAlert:
             return
         try:
             url = f"https://api.telegram.org/bot{self.token}/sendMessage"
-            data = urllib.parse.urlencode(
-                {"chat_id": self.chat_id, "text": msg, "parse_mode": "Markdown"}
-            ).encode()
+            params = {"chat_id": self.chat_id, "text": msg, "parse_mode": "Markdown"}
+            if self.thread_id:
+                params["message_thread_id"] = self.thread_id
+            data = urllib.parse.urlencode(params).encode()
             urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=10)
         except Exception as e:
             log.error(f"Telegram error: {e}")
