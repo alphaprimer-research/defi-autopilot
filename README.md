@@ -43,7 +43,7 @@ forge test --fork-url https://arb1.arbitrum.io/rpc -vvv
 
 | Network | Proxy | Implementation |
 |---------|-------|----------------|
-| Arbitrum | TBD | TBD |
+| Arbitrum | [`0x87Ef5c25...dF1fa9`](https://arbiscan.io/address/0x87Ef5c25203886b1026ad907E7f84fBAABdF1fa9) | [`0xC351fA4B...D05aeC`](https://arbiscan.io/address/0xC351fA4BfED999bC105B9c63AEf5EC9806D05aeC) |
 
 ## Security
 

@@ -31,7 +31,7 @@ interface IScaledBalance {
     function balanceOf(address user) external view returns (uint256);
 }
 
-/// @title AlphaPrimer Multi-Strategy Yield Vault v3.1
+/// @title AlphaPrimer Multi-Strategy Yield Vault v3.2
 /// @notice Routes USDC to the highest-yielding protocol among
 ///         Aave V3, Compound V3, and Fluid on Arbitrum.
 /// @dev Owner = TimelockController behind 4/5 multi-sig.
@@ -66,7 +66,7 @@ contract AlphaPrimerVault is
     IComet public compound;
     IFluidVault public fluid;
 
-    /// @dev R5: storage gap for future upgrades
+    /// @dev storage gap for future upgrades
     uint256[40] private __gap;
 
     event Harvest(uint256 yield, uint256 fee);
@@ -125,7 +125,6 @@ contract AlphaPrimerVault is
 
     // ── views ───────────────────────────────────────
 
-    /// @dev R1: decimals offset prevents donation-based inflation attack
     /// @dev offset 6 per Morpho recommendation — prevents donation inflation
     function _decimalsOffset() internal pure override returns (uint8) { return 6; }
 
@@ -158,7 +157,6 @@ contract AlphaPrimerVault is
     {
         require(!depositsPaused, "deposits paused");
         require(assets >= MIN_DEPOSIT, "below minimum");
-        // F-02: checkpoint mgmt clock before new capital enters
         if (lastHarvest < block.timestamp) lastHarvest = block.timestamp;
         uint256 shares = super.deposit(assets, receiver);
         require(shares > 0, "zero shares");
@@ -217,7 +215,7 @@ contract AlphaPrimerVault is
     function harvest() public onlyStrategistOrOwner nonReentrant {
         uint256 nav = totalAssets();
 
-        // F-02: always refresh clock, even on early return
+        // always refresh clock, even on early return
         uint256 dt = block.timestamp - lastHarvest;
         lastHarvest = block.timestamp;
 
@@ -257,7 +255,7 @@ contract AlphaPrimerVault is
     // ── admin (owner only) ──────────────────────────
 
     function setStrategist(address s) external onlyOwner {
-        require(s != address(0), "zero strategist"); // R4
+        require(s != address(0), "zero strategist");
         emit StrategistUpdated(strategist, s);
         strategist = s;
     }
@@ -274,10 +272,9 @@ contract AlphaPrimerVault is
         emit DepositsPaused(true);
     }
 
-    /// @dev R2: harvest before fee change to lock in pending yield at old rate
     function setFees(uint256 perf, uint256 mgmt) external onlyOwner {
         require(perf <= MAX_PERF_FEE && mgmt <= MAX_MGMT_FEE, "fee cap");
-        if (totalSupply() > 0) harvest(); // R2: settle pending yield first
+        if (totalSupply() > 0) harvest();
         perfFeeBps = perf;
         mgmtFeeBps = mgmt;
         emit FeesUpdated(perf, mgmt);
