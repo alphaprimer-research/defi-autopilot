@@ -14,8 +14,8 @@ import logging
 from pathlib import Path
 from datetime import datetime, timezone
 
-from yield_monitor import should_rebalance, get_best_protocol, PROTOCOL_NAMES
-from vault_operator import VaultOperator
+from yield_monitor import should_rebalance, get_best_protocol
+from vault_operator import VaultOperator, PROTOCOL_NAMES
 from alerts import TelegramAlert
 
 logging.basicConfig(
