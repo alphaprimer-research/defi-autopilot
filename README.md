@@ -94,7 +94,7 @@ The vault holds capital in **one protocol at a time**. The strategist calls `reb
 | Contract | Address | Verified |
 |----------|---------|----------|
 | **Vault (Proxy)** | [`0x87Ef5c25203886b1026ad907E7f84fBAABdF1fa9`](https://arbiscan.io/address/0x87Ef5c25203886b1026ad907E7f84fBAABdF1fa9) | Yes |
-| **Implementation** | [`0x18a14fEaA5f220E012Ab9079d5c0e4AdFd85f8E0`](https://arbiscan.io/address/0x18a14fEaA5f220E012Ab9079d5c0e4AdFd85f8E0) | Yes |
+| **Implementation** | [`0x0B3281205FF8336D0d05a0e96b89A4e8a5Ed4Bb8`](https://arbiscan.io/address/0x0B3281205FF8336D0d05a0e96b89A4e8a5Ed4Bb8) | Yes |
 
 ### Underlying Protocol Addresses
 
@@ -212,6 +212,7 @@ See `bot/` directory for setup instructions.
 
 | Version | Changes |
 |---------|---------|
+| 3.4.0 | Guardian role (instant emergency pause), accurate ERC-4626 views via pending fee reflection, mgmt fee accrues in flat markets, emergency exit revokes approvals, rebalance slippage protection (off-chain minReceived), Fluid 3-arg deposit |
 | 3.3.0 | Fee settlement on every entry/exit via `_settleFees()`, Fluid slippage protection (0.5% bound), `MAX_SLIPPAGE_BPS` constant |
 | 3.2.0 | Management fee clock fix, `_decimalsOffset(6)`, deposit/mint lastHarvest checkpoint |
 | 3.1.0 | Inflation guard, fee ambush prevention, storage gap, reentrancy on all functions |
