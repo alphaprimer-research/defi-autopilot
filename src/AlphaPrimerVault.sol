@@ -22,6 +22,7 @@ interface IComet {
 
 interface IFluidVault {
     function deposit(uint256 assets, address receiver) external returns (uint256);
+    function previewDeposit(uint256 assets) external view returns (uint256);
     function redeem(uint256 shares, address receiver, address owner_) external returns (uint256);
     function balanceOf(address account) external view returns (uint256);
     function previewRedeem(uint256 shares) external view returns (uint256);
@@ -31,7 +32,7 @@ interface IScaledBalance {
     function balanceOf(address user) external view returns (uint256);
 }
 
-/// @title AlphaPrimer Multi-Strategy Yield Vault v3.2
+/// @title AlphaPrimer Multi-Strategy Yield Vault v3.3
 /// @notice Routes USDC to the highest-yielding protocol among
 ///         Aave V3, Compound V3, and Fluid on Arbitrum.
 /// @dev Owner = TimelockController behind 4/5 multi-sig.
@@ -53,6 +54,7 @@ contract AlphaPrimerVault is
     uint256 public constant MAX_MGMT_FEE = 200;
     uint256 public constant BPS = 10_000;
     uint256 public constant MIN_DEPOSIT = 1e6;
+    uint256 public constant MAX_SLIPPAGE_BPS = 50;
 
     uint256 public lastHarvest;
     uint256 public accruedFees;
@@ -140,7 +142,32 @@ contract AlphaPrimerVault is
         return 0;
     }
 
-    function version() external pure returns (string memory) { return "3.2.0"; }
+    function version() external pure returns (string memory) { return "3.3.0"; }
+
+    // ── internal: fee settlement ────────────────────
+
+    /// @dev Settles pending performance and management fees.
+    ///      Called before any deposit/mint/withdraw/redeem to ensure
+    ///      accurate fee accounting across capital changes.
+    ///      Must only be called inside a nonReentrant context.
+    function _settleFees() internal {
+        uint256 nav = totalAssets();
+        uint256 dt = block.timestamp - lastHarvest;
+        lastHarvest = block.timestamp;
+
+        if (dt == 0 || nav <= highWaterMark) return;
+
+        uint256 yield_ = nav - highWaterMark;
+        uint256 pFee = (yield_ * perfFeeBps) / BPS;
+        uint256 mFee = (highWaterMark * mgmtFeeBps * dt) / (BPS * 365 days);
+
+        uint256 take = pFee + mFee;
+        if (take > nav) take = nav;
+        accruedFees += take;
+        highWaterMark = totalAssets();
+
+        emit Harvest(yield_, take);
+    }
 
     // ── user actions ────────────────────────────────
 
@@ -157,7 +184,7 @@ contract AlphaPrimerVault is
     {
         require(!depositsPaused, "deposits paused");
         require(assets >= MIN_DEPOSIT, "below minimum");
-        if (lastHarvest < block.timestamp) lastHarvest = block.timestamp;
+        _settleFees();
         uint256 shares = super.deposit(assets, receiver);
         require(shares > 0, "zero shares");
         _supplyToActive(assets);
@@ -171,7 +198,7 @@ contract AlphaPrimerVault is
         require(!depositsPaused, "deposits paused");
         uint256 assets = previewMint(shares);
         require(assets >= MIN_DEPOSIT, "below minimum");
-        if (lastHarvest < block.timestamp) lastHarvest = block.timestamp;
+        _settleFees();
         uint256 actualAssets = super.mint(shares, receiver);
         require(actualAssets > 0, "zero assets");
         _supplyToActive(actualAssets);
@@ -182,6 +209,7 @@ contract AlphaPrimerVault is
     function withdraw(uint256 assets, address receiver, address o)
         public override nonReentrant returns (uint256)
     {
+        _settleFees();
         _ensureLiquidity(assets);
         uint256 ta = totalAssets();
         if (ta > 0) highWaterMark = highWaterMark * (ta - assets) / ta;
@@ -191,6 +219,7 @@ contract AlphaPrimerVault is
     function redeem(uint256 shares, address receiver, address o)
         public override nonReentrant returns (uint256)
     {
+        _settleFees();
         uint256 assets = previewRedeem(shares);
         _ensureLiquidity(assets);
         uint256 ta = totalAssets();
@@ -212,28 +241,9 @@ contract AlphaPrimerVault is
         emit Rebalanced(from, toProtocol, bal);
     }
 
+    /// @notice Settles pending fees. Callable by strategist or owner.
     function harvest() public onlyStrategistOrOwner nonReentrant {
-        uint256 nav = totalAssets();
-
-        // always refresh clock, even on early return
-        uint256 dt = block.timestamp - lastHarvest;
-        lastHarvest = block.timestamp;
-
-        if (nav <= highWaterMark) return;
-
-        uint256 yield_ = nav - highWaterMark;
-        uint256 pFee = (yield_ * perfFeeBps) / BPS;
-
-        // mgmt fee only on capital that was present for dt
-        // use highWaterMark (prior NAV) as the base, not current nav
-        uint256 mFee = (highWaterMark * mgmtFeeBps * dt) / (BPS * 365 days);
-
-        uint256 take = pFee + mFee;
-        if (take > nav) take = nav;
-        accruedFees += take;
-        highWaterMark = totalAssets();
-
-        emit Harvest(yield_, take);
+        _settleFees();
     }
 
     function collectFees() external onlyOwner nonReentrant {
@@ -272,9 +282,10 @@ contract AlphaPrimerVault is
         emit DepositsPaused(true);
     }
 
+    /// @dev Settles pending fees at old rate before applying new fee params.
     function setFees(uint256 perf, uint256 mgmt) external onlyOwner {
         require(perf <= MAX_PERF_FEE && mgmt <= MAX_MGMT_FEE, "fee cap");
-        if (totalSupply() > 0) harvest();
+        if (totalSupply() > 0) _settleFees();
         perfFeeBps = perf;
         mgmtFeeBps = mgmt;
         emit FeesUpdated(perf, mgmt);
@@ -284,9 +295,18 @@ contract AlphaPrimerVault is
 
     function _supplyToActive(uint256 amt) internal {
         if (amt == 0) return;
-        if (activeProtocol == 1) aavePool.supply(address(underlying), amt, address(this), 0);
-        else if (activeProtocol == 2) compound.supply(address(underlying), amt);
-        else if (activeProtocol == 3) fluid.deposit(amt, address(this));
+        if (activeProtocol == 1) {
+            aavePool.supply(address(underlying), amt, address(this), 0);
+        } else if (activeProtocol == 2) {
+            compound.supply(address(underlying), amt);
+        } else if (activeProtocol == 3) {
+            uint256 expectedShares = fluid.previewDeposit(amt);
+            uint256 shares = fluid.deposit(amt, address(this));
+            require(
+                shares >= expectedShares * (BPS - MAX_SLIPPAGE_BPS) / BPS,
+                "fluid deposit slippage"
+            );
+        }
     }
 
     function _withdrawAll() internal returns (uint256) {
@@ -299,7 +319,14 @@ contract AlphaPrimerVault is
             if (bal > 0) compound.withdraw(address(underlying), bal);
         } else if (activeProtocol == 3) {
             uint256 bal = fluid.balanceOf(address(this));
-            if (bal > 0) fluid.redeem(bal, address(this), address(this));
+            if (bal > 0) {
+                uint256 expectedAssets = fluid.previewRedeem(bal);
+                uint256 got = fluid.redeem(bal, address(this), address(this));
+                require(
+                    got >= expectedAssets * (BPS - MAX_SLIPPAGE_BPS) / BPS,
+                    "fluid redeem slippage"
+                );
+            }
         }
         return underlying.balanceOf(address(this)) - before;
     }
@@ -320,11 +347,20 @@ contract AlphaPrimerVault is
             uint256 bal = fluid.balanceOf(address(this));
             if (bal > 0) {
                 uint256 redeemable = fluid.previewRedeem(bal);
+                uint256 minOut = redeemable * (BPS - MAX_SLIPPAGE_BPS) / BPS;
                 if (redeemable <= gap) {
-                    fluid.redeem(bal, address(this), address(this));
+                    uint256 got = fluid.redeem(bal, address(this), address(this));
+                    require(got >= minOut, "fluid redeem slippage");
                 } else {
                     uint256 sharesToRedeem = bal * gap / redeemable;
-                    if (sharesToRedeem > 0) fluid.redeem(sharesToRedeem, address(this), address(this));
+                    if (sharesToRedeem > 0) {
+                        uint256 expectedOut = fluid.previewRedeem(sharesToRedeem);
+                        uint256 got = fluid.redeem(sharesToRedeem, address(this), address(this));
+                        require(
+                            got >= expectedOut * (BPS - MAX_SLIPPAGE_BPS) / BPS,
+                            "fluid redeem slippage"
+                        );
+                    }
                 }
             }
         }
