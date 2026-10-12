@@ -129,7 +129,7 @@ contract MainnetEdgeCases is Test {
         vault.harvest();
 
         vm.expectRevert("not authorized");
-        vault.rebalanceTo(2);
+        vault.rebalanceTo(2, 0);
 
         vm.expectRevert();
         vault.collectFees();

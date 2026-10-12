@@ -65,7 +65,7 @@ contract RebalanceTest is Test {
         uint256 assetsBefore = vault.totalAssets();
 
         vm.prank(strategist);
-        vault.rebalanceTo(2);
+        vault.rebalanceTo(2, 0);
 
         assertEq(vault.activeProtocol(), 2);
         assertApproxEqRel(vault.totalAssets(), assetsBefore, 0.01e18);
@@ -74,7 +74,7 @@ contract RebalanceTest is Test {
     function test_compound_earns_yield() public {
         _deposit(5_000e6);
         vm.prank(strategist);
-        vault.rebalanceTo(2);
+        vault.rebalanceTo(2, 0);
 
         uint256 before = vault.totalAssets();
         vm.warp(block.timestamp + 30 days);
@@ -84,7 +84,7 @@ contract RebalanceTest is Test {
     function test_withdraw_from_compound() public {
         _deposit(5_000e6);
         vm.prank(strategist);
-        vault.rebalanceTo(2);
+        vault.rebalanceTo(2, 0);
 
         uint256 shares = vault.balanceOf(alice);
         vm.prank(alice);
@@ -101,7 +101,7 @@ contract RebalanceTest is Test {
         uint256 assetsBefore = vault.totalAssets();
 
         vm.prank(strategist);
-        vault.rebalanceTo(3);
+        vault.rebalanceTo(3, 0);
 
         assertEq(vault.activeProtocol(), 3);
         assertApproxEqRel(vault.totalAssets(), assetsBefore, 0.02e18);
@@ -110,7 +110,7 @@ contract RebalanceTest is Test {
     function test_fluid_earns_yield() public {
         _deposit(5_000e6);
         vm.prank(strategist);
-        vault.rebalanceTo(3);
+        vault.rebalanceTo(3, 0);
 
         uint256 before = vault.totalAssets();
         vm.warp(block.timestamp + 30 days);
@@ -120,7 +120,7 @@ contract RebalanceTest is Test {
     function test_withdraw_from_fluid() public {
         _deposit(5_000e6);
         vm.prank(strategist);
-        vault.rebalanceTo(3);
+        vault.rebalanceTo(3, 0);
 
         uint256 shares = vault.balanceOf(alice);
         vm.prank(alice);
@@ -136,11 +136,11 @@ contract RebalanceTest is Test {
         _deposit(5_000e6);
 
         vm.prank(strategist);
-        vault.rebalanceTo(2); // aave → compound
+        vault.rebalanceTo(2, 0); // aave → compound
         assertEq(vault.activeProtocol(), 2);
 
         vm.prank(strategist);
-        vault.rebalanceTo(3); // compound → fluid
+        vault.rebalanceTo(3, 0); // compound → fluid
         assertEq(vault.activeProtocol(), 3);
 
         assertGt(vault.totalAssets(), 4_900e6);
@@ -151,11 +151,11 @@ contract RebalanceTest is Test {
         uint256 initial = vault.totalAssets();
 
         vm.prank(strategist);
-        vault.rebalanceTo(2); // aave → compound
+        vault.rebalanceTo(2, 0); // aave → compound
         vm.prank(strategist);
-        vault.rebalanceTo(3); // compound → fluid
+        vault.rebalanceTo(3, 0); // compound → fluid
         vm.prank(strategist);
-        vault.rebalanceTo(1); // fluid → back to aave
+        vault.rebalanceTo(1, 0); // fluid → back to aave
 
         assertApproxEqRel(vault.totalAssets(), initial, 0.05e18);
     }
@@ -167,14 +167,14 @@ contract RebalanceTest is Test {
 
         vm.prank(alice);
         vm.expectRevert("not authorized");
-        vault.rebalanceTo(2);
+        vault.rebalanceTo(2, 0);
     }
 
     function test_owner_can_also_rebalance() public {
         _deposit(1_000e6);
 
         vm.prank(owner);
-        vault.rebalanceTo(2);
+        vault.rebalanceTo(2, 0);
         assertEq(vault.activeProtocol(), 2);
     }
 
@@ -183,7 +183,7 @@ contract RebalanceTest is Test {
 
         vm.prank(strategist);
         vm.expectRevert("already active");
-        vault.rebalanceTo(1);
+        vault.rebalanceTo(1, 0);
     }
 
     function test_cannot_rebalance_to_invalid() public {
@@ -191,6 +191,6 @@ contract RebalanceTest is Test {
 
         vm.prank(strategist);
         vm.expectRevert("invalid protocol");
-        vault.rebalanceTo(4);
+        vault.rebalanceTo(4, 0);
     }
 }

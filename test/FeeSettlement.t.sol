@@ -117,7 +117,7 @@ contract FeeSettlement is Test {
 
         // rebalance to Fluid — should succeed with slippage check
         vm.prank(strategist);
-        vault.rebalanceTo(3);
+        vault.rebalanceTo(3, 0);
 
         assertEq(vault.activeProtocol(), 3);
         assertGt(vault.totalAssets(), 4_900e6, "lost >2% on Fluid deposit");
@@ -129,8 +129,8 @@ contract FeeSettlement is Test {
         uint256 assetsBefore = vault.totalAssets();
 
         vm.startPrank(strategist);
-        vault.rebalanceTo(3); // aave → fluid
-        vault.rebalanceTo(1); // fluid → aave
+        vault.rebalanceTo(3, 0); // aave → fluid
+        vault.rebalanceTo(1, 0); // fluid → aave
         vm.stopPrank();
 
         uint256 assetsAfter = vault.totalAssets();
@@ -138,7 +138,7 @@ contract FeeSettlement is Test {
         assertGt(assetsAfter, assetsBefore * 99 / 100, "round trip lost >1%");
     }
 
-    function test_version_is_3_3() public view {
-        assertEq(vault.version(), "3.3.0");
+    function test_version_is_3_4() public view {
+        assertEq(vault.version(), "3.4.0");
     }
 }

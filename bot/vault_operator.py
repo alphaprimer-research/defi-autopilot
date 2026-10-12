@@ -21,7 +21,7 @@ VAULT_ABI = [
     {"inputs": [], "name": "mgmtFeeBps", "outputs": [{"type": "uint256"}], "stateMutability": "view", "type": "function"},
     {"inputs": [], "name": "depositsPaused", "outputs": [{"type": "bool"}], "stateMutability": "view", "type": "function"},
     {"inputs": [], "name": "version", "outputs": [{"type": "string"}], "stateMutability": "pure", "type": "function"},
-    {"inputs": [{"type": "uint8", "name": "toProtocol"}], "name": "rebalanceTo", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
+    {"inputs": [{"type": "uint8", "name": "toProtocol"}, {"type": "uint256", "name": "minReceived"}], "name": "rebalanceTo", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
     {"inputs": [], "name": "harvest", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
     {"inputs": [], "name": "deployIdle", "outputs": [], "stateMutability": "nonpayable", "type": "function"},
 ]
@@ -102,8 +102,10 @@ class VaultOperator:
 
     def rebalance_to(self, protocol_id):
         log.info(f"Rebalancing to protocol {protocol_id} ({PROTOCOL_NAMES.get(protocol_id, '?')})")
+        current_assets = self.vault.functions.totalAssets().call()
+        min_received = current_assets * 995 // 1000
         tx_hash, status = self._send_tx(
-            self.vault.functions.rebalanceTo(protocol_id), gas=500_000
+            self.vault.functions.rebalanceTo(protocol_id, min_received), gas=500_000
         )
         log.info(f"Rebalance TX: {tx_hash} status={status}")
         return tx_hash, status
