@@ -72,6 +72,7 @@ contract AlphaPrimerVault is
     event DepositsPaused(bool state);
     event Rebalanced(uint8 fromProtocol, uint8 toProtocol, uint256 amount);
     event StrategistUpdated(address indexed prev, address indexed next);
+    event FeesUpdated(uint256 perfFeeBps, uint256 mgmtFeeBps);
 
     modifier onlyStrategistOrOwner() {
         require(msg.sender == strategist || msg.sender == owner(), "not authorized");
@@ -106,6 +107,9 @@ contract AlphaPrimerVault is
 
         require(perfFee_ <= MAX_PERF_FEE && mgmtFee_ <= MAX_MGMT_FEE, "fee cap");
         require(owner_ != address(0) && asset_ != address(0), "zero addr");
+        require(strategist_ != address(0), "zero strategist");
+        require(aavePool_ != address(0) && aaveAToken_ != address(0), "zero aave");
+        require(compound_ != address(0) && fluid_ != address(0), "zero protocol");
         perfFeeBps = perfFee_;
         mgmtFeeBps = mgmtFee_;
         lastHarvest = block.timestamp;
@@ -261,6 +265,7 @@ contract AlphaPrimerVault is
         require(perf <= MAX_PERF_FEE && mgmt <= MAX_MGMT_FEE, "fee cap");
         perfFeeBps = perf;
         mgmtFeeBps = mgmt;
+        emit FeesUpdated(perf, mgmt);
     }
 
     // ── internal: protocol routing ──────────────────
