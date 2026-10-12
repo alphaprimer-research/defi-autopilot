@@ -126,7 +126,8 @@ contract AlphaPrimerVault is
     // ── views ───────────────────────────────────────
 
     /// @dev R1: decimals offset prevents donation-based inflation attack
-    function _decimalsOffset() internal pure override returns (uint8) { return 3; }
+    /// @dev offset 6 per Morpho recommendation — prevents donation inflation
+    function _decimalsOffset() internal pure override returns (uint8) { return 6; }
 
     function totalAssets() public view override returns (uint256) {
         uint256 gross = _protocolBalance() + underlying.balanceOf(address(this));
@@ -140,7 +141,7 @@ contract AlphaPrimerVault is
         return 0;
     }
 
-    function version() external pure returns (string memory) { return "3.1.0"; }
+    function version() external pure returns (string memory) { return "3.2.0"; }
 
     // ── user actions ────────────────────────────────
 
@@ -157,8 +158,10 @@ contract AlphaPrimerVault is
     {
         require(!depositsPaused, "deposits paused");
         require(assets >= MIN_DEPOSIT, "below minimum");
+        // F-02: checkpoint mgmt clock before new capital enters
+        if (lastHarvest < block.timestamp) lastHarvest = block.timestamp;
         uint256 shares = super.deposit(assets, receiver);
-        require(shares > 0, "zero shares"); // R1: prevent donation grief
+        require(shares > 0, "zero shares");
         _supplyToActive(assets);
         highWaterMark += assets;
         return shares;
@@ -170,8 +173,9 @@ contract AlphaPrimerVault is
         require(!depositsPaused, "deposits paused");
         uint256 assets = previewMint(shares);
         require(assets >= MIN_DEPOSIT, "below minimum");
+        if (lastHarvest < block.timestamp) lastHarvest = block.timestamp;
         uint256 actualAssets = super.mint(shares, receiver);
-        require(actualAssets > 0, "zero assets"); // R1
+        require(actualAssets > 0, "zero assets");
         _supplyToActive(actualAssets);
         highWaterMark += actualAssets;
         return actualAssets;
@@ -212,19 +216,24 @@ contract AlphaPrimerVault is
 
     function harvest() public onlyStrategistOrOwner nonReentrant {
         uint256 nav = totalAssets();
+
+        // F-02: always refresh clock, even on early return
+        uint256 dt = block.timestamp - lastHarvest;
+        lastHarvest = block.timestamp;
+
         if (nav <= highWaterMark) return;
 
         uint256 yield_ = nav - highWaterMark;
         uint256 pFee = (yield_ * perfFeeBps) / BPS;
 
-        uint256 dt = block.timestamp - lastHarvest;
-        uint256 mFee = (nav * mgmtFeeBps * dt) / (BPS * 365 days);
+        // mgmt fee only on capital that was present for dt
+        // use highWaterMark (prior NAV) as the base, not current nav
+        uint256 mFee = (highWaterMark * mgmtFeeBps * dt) / (BPS * 365 days);
 
         uint256 take = pFee + mFee;
         if (take > nav) take = nav;
         accruedFees += take;
         highWaterMark = totalAssets();
-        lastHarvest = block.timestamp;
 
         emit Harvest(yield_, take);
     }
