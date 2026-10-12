@@ -69,7 +69,7 @@ contract AlphaPrimerVault is
     uint256 public accruedFees;
     bool public depositsPaused;
 
-    // active protocol: 0=idle, 1=aave, 2=compound, 3=fluid, 4=gains
+    // active protocol: 0=idle, 1=aave, 2=compound, 3=fluid, 4=reserved
     uint8 public activeProtocol;
 
     // protocol addresses
@@ -180,7 +180,7 @@ contract AlphaPrimerVault is
     // ── strategy (strategist or owner) ──────────────
 
     function rebalanceTo(uint8 toProtocol) external onlyStrategistOrOwner {
-        require(toProtocol >= 1 && toProtocol <= 4, "invalid protocol");
+        require(toProtocol >= 1 && toProtocol <= 3, "invalid protocol");
         require(toProtocol != activeProtocol, "already active");
 
         uint256 bal = _withdrawAll();
