@@ -89,10 +89,13 @@ contract AlphaPrimerVault is
 
     // ── user actions ───────────────────────────────────────
 
+    uint256 public constant MIN_DEPOSIT = 1e6; // 1 USDC minimum
+
     function deposit(uint256 assets, address receiver)
         public override nonReentrant returns (uint256)
     {
         require(!depositsPaused, "deposits paused");
+        require(assets >= MIN_DEPOSIT, "below minimum");
         uint256 shares = super.deposit(assets, receiver);
         _supply(assets);
         return shares;
