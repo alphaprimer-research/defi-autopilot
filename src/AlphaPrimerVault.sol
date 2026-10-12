@@ -118,7 +118,8 @@ contract AlphaPrimerVault is
     // ── views ───────────────────────────────────────
 
     function totalAssets() public view override returns (uint256) {
-        return _protocolBalance() + underlying.balanceOf(address(this)) - accruedFees;
+        uint256 gross = _protocolBalance() + underlying.balanceOf(address(this));
+        return gross > accruedFees ? gross - accruedFees : 0;
     }
 
     function _protocolBalance() internal view returns (uint256) {
@@ -275,7 +276,16 @@ contract AlphaPrimerVault is
             if (w > 0) compound.withdraw(address(underlying), w);
         } else if (activeProtocol == 3) {
             uint256 bal = fluid.balanceOf(address(this));
-            if (bal > 0) fluid.redeem(bal, address(this), address(this));
+            if (bal > 0) {
+                uint256 redeemable = fluid.previewRedeem(bal);
+                if (redeemable <= gap) {
+                    fluid.redeem(bal, address(this), address(this));
+                } else {
+                    // partial: estimate shares needed
+                    uint256 sharesToRedeem = bal * gap / redeemable;
+                    if (sharesToRedeem > 0) fluid.redeem(sharesToRedeem, address(this), address(this));
+                }
+            }
         }
     }
 
