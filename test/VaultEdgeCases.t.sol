@@ -26,7 +26,11 @@ contract VaultEdgeCases is Test {
         AlphaPrimerVault impl = new AlphaPrimerVault();
         bytes memory initData = abi.encodeCall(
             AlphaPrimerVault.initialize,
-            (USDC, POOL, AUSDC, owner, 1000, 100)
+            (USDC, owner, owner, POOL, AUSDC,
+             0x9c4ec768c28520B50860ea7a15bd7213a9fF58bf,
+             0x1A996cb54bb95462040408C06122D45D6Cdb6096,
+             0xd3443ee1e91aF28e5FB858Fbd0D72A63bA8046E0,
+             1000, 100)
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
         vault = AlphaPrimerVault(address(proxy));
@@ -231,7 +235,7 @@ contract VaultEdgeCases is Test {
         assertGt(idleBefore, 0);
 
         vm.prank(owner);
-        vault.rebalance();
+        vault.deployIdle();
 
         uint256 idleAfter = usdc.balanceOf(address(vault));
         assertLt(idleAfter, idleBefore, "idle should decrease");
