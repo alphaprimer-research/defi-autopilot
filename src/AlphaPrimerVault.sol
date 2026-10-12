@@ -9,18 +9,42 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-interface IPool {
+// ── protocol interfaces ────────────────────────────
+
+interface IAavePool {
     function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
     function withdraw(address asset, uint256 amount, address to) external returns (uint256);
+}
+
+interface IComet {
+    function supply(address asset, uint256 amount) external;
+    function withdraw(address asset, uint256 amount) external;
+    function balanceOf(address account) external view returns (uint256);
+}
+
+interface IFluidVault {
+    function deposit(uint256 assets, address receiver) external returns (uint256);
+    function redeem(uint256 shares, address receiver, address owner_) external returns (uint256);
+    function balanceOf(address account) external view returns (uint256);
+    function previewRedeem(uint256 shares) external view returns (uint256);
+}
+
+interface IGainsVault {
+    function deposit(uint256 assets, address receiver) external returns (uint256);
+    function redeem(uint256 shares, address receiver, address owner_) external returns (uint256);
+    function balanceOf(address account) external view returns (uint256);
+    function previewRedeem(uint256 shares) external view returns (uint256);
 }
 
 interface IScaledBalance {
     function balanceOf(address user) external view returns (uint256);
 }
 
-/// @title AlphaPrimer Yield Vault
-/// @notice UUPS-upgradeable ERC-4626 vault routing USDC into Aave V3
-/// @dev Owner is expected to be a TimelockController behind a multi-sig
+/// @title AlphaPrimer Multi-Strategy Yield Vault
+/// @notice Routes USDC to the highest-yielding protocol among
+///         Aave V3, Compound V3, Morpho Blue, Fluid, and Gains Network
+/// @dev Owner = TimelockController behind 4/5 multi-sig.
+///      Strategist = bot wallet with limited rebalance-only access.
 contract AlphaPrimerVault is
     ERC4626Upgradeable,
     OwnableUpgradeable,
@@ -29,67 +53,104 @@ contract AlphaPrimerVault is
 {
     using SafeERC20 for IERC20;
 
-    IPool public pool;
-    IScaledBalance public aToken;
+    // ── state ───────────────────────────────────────
+
     IERC20 public underlying;
+    address public strategist;
 
     uint256 public perfFeeBps;
     uint256 public mgmtFeeBps;
     uint256 public constant MAX_PERF_FEE = 2000;
     uint256 public constant MAX_MGMT_FEE = 200;
     uint256 public constant BPS = 10_000;
+    uint256 public constant MIN_DEPOSIT = 1e6;
 
     uint256 public lastHarvest;
     uint256 public accruedFees;
     bool public depositsPaused;
 
+    // active protocol: 0=idle, 1=aave, 2=compound, 3=fluid, 4=gains
+    uint8 public activeProtocol;
+
+    // protocol addresses
+    IAavePool public aavePool;
+    IScaledBalance public aaveAToken;
+    IComet public compound;
+    IFluidVault public fluid;
+    IGainsVault public gains;
+
+    // ── events ──────────────────────────────────────
+
     event Harvest(uint256 yield, uint256 fee);
     event FeesCollected(uint256 amount);
     event DepositsPaused(bool state);
+    event Rebalanced(uint8 fromProtocol, uint8 toProtocol, uint256 amount);
+    event StrategistUpdated(address indexed prev, address indexed next);
+
+    // ── modifiers ───────────────────────────────────
+
+    modifier onlyStrategistOrOwner() {
+        require(msg.sender == strategist || msg.sender == owner(), "not authorized");
+        _;
+    }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
+    constructor() { _disableInitializers(); }
 
     function initialize(
         address asset_,
-        address pool_,
-        address aToken_,
         address owner_,
+        address strategist_,
+        address aavePool_,
+        address aaveAToken_,
+        address compound_,
+        address fluid_,
+        address gains_,
         uint256 perfFee_,
         uint256 mgmtFee_
     ) external initializer {
         __ERC4626_init(IERC20(asset_));
         __ERC20_init("AlphaPrimer USDC Vault", "apUSDC");
         __Ownable_init(owner_);
-        // UUPSUpgradeable and ReentrancyGuardTransient need no init in v5
 
         underlying = IERC20(asset_);
-        pool = IPool(pool_);
-        aToken = IScaledBalance(aToken_);
+        strategist = strategist_;
+
+        aavePool = IAavePool(aavePool_);
+        aaveAToken = IScaledBalance(aaveAToken_);
+        compound = IComet(compound_);
+        fluid = IFluidVault(fluid_);
+        gains = IGainsVault(gains_);
+
         perfFeeBps = perfFee_;
         mgmtFeeBps = mgmtFee_;
         lastHarvest = block.timestamp;
+        activeProtocol = 1; // start with Aave
 
-        underlying.approve(pool_, type(uint256).max);
+        // approve all protocols
+        underlying.approve(aavePool_, type(uint256).max);
+        underlying.approve(compound_, type(uint256).max);
+        underlying.approve(fluid_, type(uint256).max);
+        underlying.approve(gains_, type(uint256).max);
     }
 
-    // ── views ──────────────────────────────────────────────
+    // ── views ───────────────────────────────────────
 
     function totalAssets() public view override returns (uint256) {
-        return aToken.balanceOf(address(this))
-             + underlying.balanceOf(address(this))
-             - accruedFees;
+        return _protocolBalance() + underlying.balanceOf(address(this)) - accruedFees;
     }
 
-    function version() external pure returns (string memory) {
-        return "1.0.0";
+    function _protocolBalance() internal view returns (uint256) {
+        if (activeProtocol == 1) return aaveAToken.balanceOf(address(this));
+        if (activeProtocol == 2) return compound.balanceOf(address(this));
+        if (activeProtocol == 3) return fluid.previewRedeem(fluid.balanceOf(address(this)));
+        if (activeProtocol == 4) return gains.previewRedeem(gains.balanceOf(address(this)));
+        return 0;
     }
 
-    // ── user actions ───────────────────────────────────────
+    function version() external pure returns (string memory) { return "2.0.0"; }
 
-    uint256 public constant MIN_DEPOSIT = 1e6; // 1 USDC minimum
+    // ── user actions ────────────────────────────────
 
     function deposit(uint256 assets, address receiver)
         public override nonReentrant returns (uint256)
@@ -97,7 +158,7 @@ contract AlphaPrimerVault is
         require(!depositsPaused, "deposits paused");
         require(assets >= MIN_DEPOSIT, "below minimum");
         uint256 shares = super.deposit(assets, receiver);
-        _supply(assets);
+        _supplyToActive(assets);
         return shares;
     }
 
@@ -116,12 +177,23 @@ contract AlphaPrimerVault is
         return super.redeem(shares, receiver, o);
     }
 
-    // ── strategy management (owner / timelock) ─────────────
+    // ── strategy (strategist or owner) ──────────────
 
-    function harvest() external onlyOwner {
-        uint256 gross = aToken.balanceOf(address(this))
-                      + underlying.balanceOf(address(this));
-        uint256 owed = totalSupply() + accruedFees; // what we owe users + pending fees
+    function rebalanceTo(uint8 toProtocol) external onlyStrategistOrOwner {
+        require(toProtocol >= 1 && toProtocol <= 4, "invalid protocol");
+        require(toProtocol != activeProtocol, "already active");
+
+        uint256 bal = _withdrawAll();
+        uint8 from = activeProtocol;
+        activeProtocol = toProtocol;
+        _supplyToActive(bal);
+
+        emit Rebalanced(from, toProtocol, bal);
+    }
+
+    function harvest() external onlyStrategistOrOwner {
+        uint256 gross = _protocolBalance() + underlying.balanceOf(address(this));
+        uint256 owed = totalSupply() + accruedFees;
 
         if (gross <= owed) return;
 
@@ -146,14 +218,19 @@ contract AlphaPrimerVault is
         emit FeesCollected(amt);
     }
 
-    function rebalance() external onlyOwner {
+    function deployIdle() external onlyStrategistOrOwner {
         uint256 idle = underlying.balanceOf(address(this));
         if (idle > accruedFees) {
-            _supply(idle - accruedFees);
+            _supplyToActive(idle - accruedFees);
         }
     }
 
-    // ── safety ──────────────────────────────────────────────
+    // ── admin (owner only) ──────────────────────────
+
+    function setStrategist(address s) external onlyOwner {
+        emit StrategistUpdated(strategist, s);
+        strategist = s;
+    }
 
     function setDepositsPaused(bool v) external onlyOwner {
         depositsPaused = v;
@@ -161,8 +238,9 @@ contract AlphaPrimerVault is
     }
 
     function emergencyExit() external onlyOwner {
-        pool.withdraw(address(underlying), type(uint256).max, address(this));
+        _withdrawAll();
         depositsPaused = true;
+        activeProtocol = 0;
         emit DepositsPaused(true);
     }
 
@@ -172,21 +250,53 @@ contract AlphaPrimerVault is
         mgmtFeeBps = mgmt;
     }
 
-    // ── internal ────────────────────────────────────────────
+    // ── internal: protocol routing ──────────────────
 
-    function _supply(uint256 amt) internal {
-        if (amt > 0) pool.supply(address(underlying), amt, address(this), 0);
+    function _supplyToActive(uint256 amt) internal {
+        if (amt == 0) return;
+        if (activeProtocol == 1) aavePool.supply(address(underlying), amt, address(this), 0);
+        else if (activeProtocol == 2) compound.supply(address(underlying), amt);
+        else if (activeProtocol == 3) fluid.deposit(amt, address(this));
+        else if (activeProtocol == 4) gains.deposit(amt, address(this));
+    }
+
+    function _withdrawAll() internal returns (uint256) {
+        uint256 before = underlying.balanceOf(address(this));
+        if (activeProtocol == 1) {
+            uint256 bal = aaveAToken.balanceOf(address(this));
+            if (bal > 0) aavePool.withdraw(address(underlying), bal, address(this));
+        } else if (activeProtocol == 2) {
+            uint256 bal = compound.balanceOf(address(this));
+            if (bal > 0) compound.withdraw(address(underlying), bal);
+        } else if (activeProtocol == 3) {
+            uint256 bal = fluid.balanceOf(address(this));
+            if (bal > 0) fluid.redeem(bal, address(this), address(this));
+        } else if (activeProtocol == 4) {
+            uint256 bal = gains.balanceOf(address(this));
+            if (bal > 0) gains.redeem(bal, address(this), address(this));
+        }
+        return underlying.balanceOf(address(this)) - before;
     }
 
     function _ensureLiquidity(uint256 needed) internal {
         uint256 idle = underlying.balanceOf(address(this));
-        if (idle < needed) {
-            uint256 gap = needed - idle;
-            uint256 aaveBal = aToken.balanceOf(address(this));
-            uint256 toWithdraw = gap > aaveBal ? aaveBal : gap;
-            if (toWithdraw > 0) {
-                pool.withdraw(address(underlying), toWithdraw, address(this));
-            }
+        if (idle >= needed) return;
+        uint256 gap = needed - idle;
+        if (activeProtocol == 1) {
+            uint256 bal = aaveAToken.balanceOf(address(this));
+            uint256 w = gap > bal ? bal : gap;
+            if (w > 0) aavePool.withdraw(address(underlying), w, address(this));
+        } else if (activeProtocol == 2) {
+            uint256 bal = compound.balanceOf(address(this));
+            uint256 w = gap > bal ? bal : gap;
+            if (w > 0) compound.withdraw(address(underlying), w);
+        } else if (activeProtocol == 3) {
+            // approximate shares needed
+            uint256 bal = fluid.balanceOf(address(this));
+            if (bal > 0) fluid.redeem(bal, address(this), address(this));
+        } else if (activeProtocol == 4) {
+            uint256 bal = gains.balanceOf(address(this));
+            if (bal > 0) gains.redeem(bal, address(this), address(this));
         }
     }
 

@@ -6,14 +6,17 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {AlphaPrimerVault} from "../src/AlphaPrimerVault.sol";
 
 contract DeployVault is Script {
-    // Arbitrum mainnet
-    address constant USDC   = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
-    address constant POOL   = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
-    address constant AUSDC  = 0x724dc807b04555b71ed48a6896b6F41593b8C637;
+    // Arbitrum mainnet — native USDC
+    address constant USDC      = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
+    address constant AAVE_POOL = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
+    address constant AUSDC     = 0x724dc807b04555b71ed48a6896b6F41593b8C637;
+    address constant COMPOUND  = 0x9c4ec768c28520B50860ea7a15bd7213a9fF58bf;
+    address constant FLUID     = 0x1A996cb54bb95462040408C06122D45D6Cdb6096;
+    address constant GAINS     = 0xd3443ee1e91aF28e5FB858Fbd0D72A63bA8046E0;
 
     function run() external {
-        address deployer = vm.envAddress("DEPLOYER");
-        address owner    = vm.envAddress("OWNER"); // timelock or multisig
+        address owner      = vm.envAddress("OWNER");
+        address strategist = vm.envAddress("STRATEGIST");
 
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
 
@@ -21,10 +24,11 @@ contract DeployVault is Script {
 
         bytes memory initData = abi.encodeCall(
             AlphaPrimerVault.initialize,
-            (USDC, POOL, AUSDC, owner, 1000, 100) // 10% perf, 1% mgmt
+            (USDC, owner, strategist, AAVE_POOL, AUSDC,
+             COMPOUND, FLUID, GAINS, 1000, 100)
         );
 
-        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
+        new ERC1967Proxy(address(impl), initData);
 
         vm.stopBroadcast();
     }
