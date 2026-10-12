@@ -104,6 +104,8 @@ contract AlphaPrimerVault is
         compound = IComet(compound_);
         fluid = IFluidVault(fluid_);
 
+        require(perfFee_ <= MAX_PERF_FEE && mgmtFee_ <= MAX_MGMT_FEE, "fee cap");
+        require(owner_ != address(0) && asset_ != address(0), "zero addr");
         perfFeeBps = perfFee_;
         mgmtFeeBps = mgmtFee_;
         lastHarvest = block.timestamp;
@@ -133,6 +135,14 @@ contract AlphaPrimerVault is
 
     // ── user actions ────────────────────────────────
 
+    function maxDeposit(address) public view override returns (uint256) {
+        return depositsPaused ? 0 : type(uint256).max;
+    }
+
+    function maxMint(address) public view override returns (uint256) {
+        return depositsPaused ? 0 : type(uint256).max;
+    }
+
     function deposit(uint256 assets, address receiver)
         public override nonReentrant returns (uint256)
     {
@@ -140,9 +150,20 @@ contract AlphaPrimerVault is
         require(assets >= MIN_DEPOSIT, "below minimum");
         uint256 shares = super.deposit(assets, receiver);
         _supplyToActive(assets);
-        // update high water mark with new deposits
         highWaterMark += assets;
         return shares;
+    }
+
+    function mint(uint256 shares, address receiver)
+        public override nonReentrant returns (uint256)
+    {
+        require(!depositsPaused, "deposits paused");
+        uint256 assets = previewMint(shares);
+        require(assets >= MIN_DEPOSIT, "below minimum");
+        uint256 actualShares = super.mint(shares, receiver);
+        _supplyToActive(assets);
+        highWaterMark += assets;
+        return actualShares;
     }
 
     function withdraw(uint256 assets, address receiver, address o)
@@ -179,22 +200,26 @@ contract AlphaPrimerVault is
         emit Rebalanced(from, toProtocol, bal);
     }
 
-    /// @notice Harvest yield above high water mark and accrue fees
+    /// @notice Harvest yield above high water mark and accrue fees.
+    ///         Uses NAV (net-of-fees) for both yield measurement and HWM update
+    ///         to prevent fee-on-fee compounding.
     function harvest() external onlyStrategistOrOwner {
-        uint256 currentAssets = totalAssets() + accruedFees; // gross assets
-        if (currentAssets <= highWaterMark) return; // no new yield
+        uint256 nav = totalAssets(); // already net of accruedFees
+        if (nav <= highWaterMark) return;
 
-        uint256 yield_ = currentAssets - highWaterMark;
+        uint256 yield_ = nav - highWaterMark;
         uint256 pFee = (yield_ * perfFeeBps) / BPS;
 
         uint256 dt = block.timestamp - lastHarvest;
-        uint256 mFee = (currentAssets * mgmtFeeBps * dt) / (BPS * 365 days);
+        uint256 mFee = (nav * mgmtFeeBps * dt) / (BPS * 365 days);
 
-        accruedFees += pFee + mFee;
-        highWaterMark = currentAssets - accruedFees; // reset to post-fee level
+        uint256 take = pFee + mFee;
+        if (take > nav) take = nav; // never exceed available assets
+        accruedFees += take;
+        highWaterMark = totalAssets(); // NAV after booking fees
         lastHarvest = block.timestamp;
 
-        emit Harvest(yield_, pFee + mFee);
+        emit Harvest(yield_, take);
     }
 
     function collectFees() external onlyOwner {
