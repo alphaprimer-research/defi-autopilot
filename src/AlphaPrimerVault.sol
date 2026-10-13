@@ -22,6 +22,7 @@ interface IComet {
 
 interface IFluidVault {
     function deposit(uint256 assets, address receiver, uint256 minAmountOut) external returns (uint256);
+    function withdraw(uint256 assets, address receiver, address owner_) external returns (uint256);
     function redeem(uint256 shares, address receiver, address owner_) external returns (uint256);
     function balanceOf(address account) external view returns (uint256);
     function previewDeposit(uint256 assets) external view returns (uint256);
@@ -180,7 +181,7 @@ contract AlphaPrimerVault is
         return 0;
     }
 
-    function version() external pure returns (string memory) { return "3.5.0"; }
+    function version() external pure returns (string memory) { return "3.5.1"; }
 
     // ── internal: fee settlement ────────────────────
 
@@ -255,7 +256,11 @@ contract AlphaPrimerVault is
         _settleFees();
         _ensureLiquidity(assets);
         uint256 ta = totalAssets();
-        if (ta > 0) highWaterMark = highWaterMark * (ta - assets) / ta;
+        if (ta > 0 && assets < ta) {
+            highWaterMark = highWaterMark * (ta - assets) / ta;
+        } else {
+            highWaterMark = 0;
+        }
         return super.withdraw(assets, receiver, o);
     }
 
@@ -266,7 +271,11 @@ contract AlphaPrimerVault is
         uint256 assets = previewRedeem(shares);
         _ensureLiquidity(assets);
         uint256 ta = totalAssets();
-        if (ta > 0) highWaterMark = highWaterMark * (ta - assets) / ta;
+        if (ta > 0 && assets < ta) {
+            highWaterMark = highWaterMark * (ta - assets) / ta;
+        } else {
+            highWaterMark = 0;
+        }
         return super.redeem(shares, receiver, o);
     }
 
@@ -417,8 +426,7 @@ contract AlphaPrimerVault is
                 if (redeemable <= gap) {
                     fluid.redeem(bal, address(this), address(this));
                 } else {
-                    uint256 sharesToRedeem = bal * gap / redeemable;
-                    if (sharesToRedeem > 0) fluid.redeem(sharesToRedeem, address(this), address(this));
+                    fluid.withdraw(gap, address(this), address(this));
                 }
             }
         }

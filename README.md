@@ -94,7 +94,7 @@ The vault holds capital in **one protocol at a time**. The strategist calls `reb
 | Contract | Address | Verified |
 |----------|---------|----------|
 | **Vault (Proxy)** | [`0x87Ef5c25203886b1026ad907E7f84fBAABdF1fa9`](https://arbiscan.io/address/0x87Ef5c25203886b1026ad907E7f84fBAABdF1fa9) | Yes |
-| **Implementation** | [`0xd3c15891e905c5d688B2B5bCcE2811724Fe673f1`](https://arbiscan.io/address/0xd3c15891e905c5d688B2B5bCcE2811724Fe673f1) | Yes |
+| **Implementation** | [`0x43D054011E1105C625c02cAbD2421e501e28D23c`](https://arbiscan.io/address/0xd3c15891e905c5d688B2B5bCcE2811724Fe673f1) | Yes |
 
 ### Underlying Protocol Addresses
 

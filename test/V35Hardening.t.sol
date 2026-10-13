@@ -198,9 +198,66 @@ contract V35Hardening is Test {
         assertEq(vault.balanceOf(alice), 0);
     }
 
+    // ── Fluid partial withdraw (L-11 fix) ──────────
+
+    function test_fluid_partial_withdraw_1_usdc() public {
+        _deposit(5_000e6);
+        vm.startPrank(strategist);
+        vault.rebalanceTo(3, vault.totalAssets() * 98 / 100);
+        vm.stopPrank();
+
+        vm.prank(alice);
+        vault.withdraw(1e6, alice, alice);
+        assertGt(usdc.balanceOf(alice), 95_000e6);
+    }
+
+    function test_fluid_partial_withdraw_half() public {
+        _deposit(10_000e6);
+        vm.startPrank(strategist);
+        vault.rebalanceTo(3, vault.totalAssets() * 98 / 100);
+        vm.stopPrank();
+
+        vm.prank(alice);
+        vault.withdraw(5_000e6, alice, alice);
+        assertGt(vault.totalAssets(), 4_900e6);
+    }
+
+    function test_fluid_redeem_half_shares() public {
+        _deposit(10_000e6);
+        vm.startPrank(strategist);
+        vault.rebalanceTo(3, vault.totalAssets() * 98 / 100);
+        vm.stopPrank();
+
+        uint256 halfShares = vault.balanceOf(alice) / 2;
+        vm.prank(alice);
+        vault.redeem(halfShares, alice, alice);
+        assertGt(vault.balanceOf(alice), 0);
+    }
+
+    function test_fluid_redeem_all() public {
+        _deposit(5_000e6);
+        vm.startPrank(strategist);
+        vault.rebalanceTo(3, vault.totalAssets() * 98 / 100);
+        vm.stopPrank();
+
+        uint256 allShares = vault.balanceOf(alice);
+        vm.prank(alice);
+        vault.redeem(allShares, alice, alice);
+        assertEq(vault.balanceOf(alice), 0);
+    }
+
+    // ── withdraw(totalAssets()) no underflow (L-12) ─
+
+    function test_withdraw_total_assets_no_panic() public {
+        _deposit(5_000e6);
+        uint256 max = vault.maxWithdraw(alice);
+        vm.prank(alice);
+        vault.withdraw(max, alice, alice);
+    }
+
     // ── version ─────────────────────────────────────
 
     function test_version() public view {
-        assertEq(vault.version(), "3.5.0");
+        assertEq(vault.version(), "3.5.1");
     }
 }
