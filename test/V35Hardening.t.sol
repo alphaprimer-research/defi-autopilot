@@ -255,9 +255,30 @@ contract V35Hardening is Test {
         vault.withdraw(max, alice, alice);
     }
 
+    // ── unpause blocked when protocol=0 ──────────────
+
+    function test_unpause_blocked_after_emergency() public {
+        _deposit(1_000e6);
+        vm.prank(guardian_);
+        vault.emergencyExit();
+
+        vm.prank(owner);
+        vm.expectRevert("reactivate first");
+        vault.setDepositsPaused(false);
+    }
+
+    function test_unpause_works_when_protocol_active() public {
+        vm.prank(owner);
+        vault.setDepositsPaused(true);
+
+        vm.prank(owner);
+        vault.setDepositsPaused(false);
+        assertFalse(vault.depositsPaused());
+    }
+
     // ── version ─────────────────────────────────────
 
     function test_version() public view {
-        assertEq(vault.version(), "3.5.1");
+        assertEq(vault.version(), "3.5.2");
     }
 }

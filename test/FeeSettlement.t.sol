@@ -144,6 +144,6 @@ contract FeeSettlement is Test {
     }
 
     function test_version_is_3_4() public view {
-        assertEq(vault.version(), "3.5.1");
+        assertEq(vault.version(), "3.5.2");
     }
 }

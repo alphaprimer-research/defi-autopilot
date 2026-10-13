@@ -181,7 +181,7 @@ contract AlphaPrimerVault is
         return 0;
     }
 
-    function version() external pure returns (string memory) { return "3.5.1"; }
+    function version() external pure returns (string memory) { return "3.5.2"; }
 
     // ── internal: fee settlement ────────────────────
 
@@ -337,6 +337,7 @@ contract AlphaPrimerVault is
 
     /// @dev Guardian or owner can pause deposits instantly (no timelock).
     function setDepositsPaused(bool v) external onlyGuardianOrOwner {
+        if (!v) require(activeProtocol != 0, "reactivate first");
         depositsPaused = v;
         emit DepositsPaused(v);
     }
@@ -370,7 +371,7 @@ contract AlphaPrimerVault is
     }
 
     /// @dev Settles pending fees at old rate before applying new fee params.
-    function setFees(uint256 perf, uint256 mgmt) external onlyOwner {
+    function setFees(uint256 perf, uint256 mgmt) external onlyOwner nonReentrant {
         require(perf <= MAX_PERF_FEE && mgmt <= MAX_MGMT_FEE, "fee cap");
         if (totalSupply() > 0) _settleFees();
         perfFeeBps = perf;
