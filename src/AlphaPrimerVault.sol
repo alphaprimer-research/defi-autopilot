@@ -206,7 +206,8 @@ contract AlphaPrimerVault is
         if (take == 0) return;
         if (take > nav) take = nav;
         accruedFees += take;
-        highWaterMark = _rawNav();
+        uint256 postFeeNav = _rawNav();
+        if (postFeeNav > highWaterMark) highWaterMark = postFeeNav;
 
         emit Harvest(yield_, take);
     }
