@@ -57,7 +57,7 @@ User deposits USDC ──► Vault mints apUSDC shares
 
 | Role | Permissions | Who |
 |------|-------------|-----|
-| **Owner** | Upgrade, set fees, emergency exit, collect fees, set strategist, pause | TimelockController (24h delay) behind 4/5 Gnosis Safe |
+| **Owner** | Upgrade, set fees, emergency exit, collect fees, set strategist, pause | TimelockController `0xB44fDdE8...2589e5` (24h) behind 4/5 Safe `0xa9c6f101...d8033` |
 | **Strategist** | Rebalance between protocols, harvest fees, deploy idle funds | Automated bot wallet |
 | **Users** | Deposit, withdraw, redeem | Anyone |
 
