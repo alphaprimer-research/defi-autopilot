@@ -2,19 +2,26 @@
 # Vault bot watchdog — runs via cron every 30 min.
 # Checks if bot is alive + last log within 2 hours.
 # Sends Telegram alert if dead or stale.
+# Reads credentials from .env in the same directory.
 
 BOT_SERVICE="vault-bot"
-TG_TOKEN="8594403416:AAHnZPhr3vM-LSAVV3XMiDajhIMaolYknrI"
-TG_CHAT="-1004244532414"
-TG_THREAD="23"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 STALE_SECONDS=7200  # 2 hours
 
+# load from .env
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    TG_TOKEN=$(grep TELEGRAM_BOT_TOKEN "$SCRIPT_DIR/.env" | cut -d= -f2)
+    TG_CHAT=$(grep TELEGRAM_CHAT_ID "$SCRIPT_DIR/.env" | cut -d= -f2)
+    TG_THREAD=$(grep TELEGRAM_THREAD_ID "$SCRIPT_DIR/.env" | cut -d= -f2)
+fi
+
+[ -z "$TG_TOKEN" ] && exit 0
+
 send_alert() {
+    local params="chat_id=${TG_CHAT}&text=$1&parse_mode=Markdown"
+    [ -n "$TG_THREAD" ] && params="${params}&message_thread_id=${TG_THREAD}"
     curl -s "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-        -d "chat_id=${TG_CHAT}" \
-        -d "message_thread_id=${TG_THREAD}" \
-        -d "text=$1" \
-        -d "parse_mode=Markdown" > /dev/null 2>&1
+        -d "$params" > /dev/null 2>&1
 }
 
 # check systemd service
