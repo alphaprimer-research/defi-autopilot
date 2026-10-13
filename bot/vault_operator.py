@@ -30,7 +30,7 @@ PROTOCOL_NAMES = {0: "idle", 1: "Aave", 2: "Compound", 3: "Fluid"}
 
 FALLBACK_RPCS = [
     "https://arbitrum.drpc.org",
-    "https://arb-mainnet-public.unifra.io",
+    "https://arb-mainnet.g.alchemy.com/v2/demo",
     "https://arbitrum-one-rpc.publicnode.com",
 ]
 
@@ -78,7 +78,8 @@ class VaultOperator:
                 "type": 2,
             })
             signed = self.w3.eth.account.sign_transaction(tx, self.account.key)
-            tx_hash = self.w3.eth.send_raw_transaction(signed.rawTransaction)
+            raw = getattr(signed, 'raw_transaction', None) or signed.rawTransaction
+            tx_hash = self.w3.eth.send_raw_transaction(raw)
             receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
             return tx_hash.hex(), receipt["status"]
         return self._call_with_fallback(_do)
