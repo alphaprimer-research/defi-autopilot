@@ -282,7 +282,7 @@ contract AlphaPrimerVault is
     // ── strategy (strategist or owner) ──────────────
 
     /// @param minReceived Minimum totalAssets after rebalance (off-chain calculated).
-    ///        Must be at least 99% of pre-rebalance assets to prevent sandwich attacks.
+    ///        Must be at least 98% of pre-rebalance assets to prevent sandwich attacks.
     function rebalanceTo(uint8 toProtocol, uint256 minReceived) external onlyStrategistOrOwner nonReentrant {
         require(toProtocol >= 1 && toProtocol <= 3, "invalid protocol");
         require(toProtocol != activeProtocol, "already active");
