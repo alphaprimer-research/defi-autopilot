@@ -54,6 +54,10 @@ contract V34Verification is Test {
         vm.stopPrank();
     }
 
+    function _rebalanceTo(uint8 to) internal {
+        vault.rebalanceTo(to, vault.totalAssets() * 99 / 100);
+    }
+
     // ── Guardian tests ──────────────────────────────
 
     function test_guardian_can_emergency_exit() public {
@@ -164,8 +168,9 @@ contract V34Verification is Test {
 
         uint256 feesBefore = vault.accruedFees();
 
-        vm.prank(strategist);
-        vault.rebalanceTo(2, 0);
+        vm.startPrank(strategist);
+        _rebalanceTo(2);
+        vm.stopPrank();
 
         uint256 feesAfter = vault.accruedFees();
         assertGt(feesAfter, feesBefore, "rebalanceTo did not settle fees");
@@ -186,8 +191,9 @@ contract V34Verification is Test {
     function test_fluid_3arg_deposit() public {
         _deposit(alice, 5_000e6);
 
-        vm.prank(strategist);
-        vault.rebalanceTo(3, 0);
+        vm.startPrank(strategist);
+        _rebalanceTo(3);
+        vm.stopPrank();
 
         assertEq(vault.activeProtocol(), 3);
         assertGt(vault.totalAssets(), 4_900e6);
@@ -225,6 +231,6 @@ contract V34Verification is Test {
     }
 
     function test_version() public view {
-        assertEq(vault.version(), "3.4.0");
+        assertEq(vault.version(), "3.5.0");
     }
 }

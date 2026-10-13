@@ -104,7 +104,7 @@ class VaultOperator:
     def rebalance_to(self, protocol_id):
         log.info(f"Rebalancing to protocol {protocol_id} ({PROTOCOL_NAMES.get(protocol_id, '?')})")
         current_assets = self.vault.functions.totalAssets().call()
-        min_received = current_assets * 995 // 1000
+        min_received = current_assets * 98 // 100
         tx_hash, status = self._send_tx(
             self.vault.functions.rebalanceTo(protocol_id, min_received), gas=500_000
         )

@@ -49,6 +49,10 @@ contract FeeSettlement is Test {
         vm.stopPrank();
     }
 
+    function _rebalanceTo(uint8 to) internal {
+        vault.rebalanceTo(to, vault.totalAssets() * 99 / 100);
+    }
+
     // $1 deposit must NOT wipe pending management fee
     function test_deposit_does_not_wipe_mgmt_fee() public {
         _deposit(alice, 10_000e6);
@@ -116,8 +120,9 @@ contract FeeSettlement is Test {
         _deposit(alice, 5_000e6);
 
         // rebalance to Fluid — should succeed with slippage check
-        vm.prank(strategist);
-        vault.rebalanceTo(3, 0);
+        vm.startPrank(strategist);
+        _rebalanceTo(3);
+        vm.stopPrank();
 
         assertEq(vault.activeProtocol(), 3);
         assertGt(vault.totalAssets(), 4_900e6, "lost >2% on Fluid deposit");
@@ -129,8 +134,8 @@ contract FeeSettlement is Test {
         uint256 assetsBefore = vault.totalAssets();
 
         vm.startPrank(strategist);
-        vault.rebalanceTo(3, 0); // aave → fluid
-        vault.rebalanceTo(1, 0); // fluid → aave
+        _rebalanceTo(3); // aave → fluid
+        _rebalanceTo(1); // fluid → aave
         vm.stopPrank();
 
         uint256 assetsAfter = vault.totalAssets();
@@ -139,6 +144,6 @@ contract FeeSettlement is Test {
     }
 
     function test_version_is_3_4() public view {
-        assertEq(vault.version(), "3.4.0");
+        assertEq(vault.version(), "3.5.0");
     }
 }

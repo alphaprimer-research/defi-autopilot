@@ -148,6 +148,6 @@ contract VaultForkTest is Test {
     }
 
     function test_version() public view {
-        assertEq(vault.version(), "3.4.0");
+        assertEq(vault.version(), "3.5.0");
     }
 }

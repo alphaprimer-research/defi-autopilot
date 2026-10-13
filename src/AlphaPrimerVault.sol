@@ -180,7 +180,7 @@ contract AlphaPrimerVault is
         return 0;
     }
 
-    function version() external pure returns (string memory) { return "3.4.0"; }
+    function version() external pure returns (string memory) { return "3.5.0"; }
 
     // ── internal: fee settlement ────────────────────
 
@@ -272,11 +272,14 @@ contract AlphaPrimerVault is
     // ── strategy (strategist or owner) ──────────────
 
     /// @param minReceived Minimum totalAssets after rebalance (off-chain calculated).
-    ///        Protects against sandwich attacks on both withdraw and deposit sides.
+    ///        Must be at least 99% of pre-rebalance assets to prevent sandwich attacks.
     function rebalanceTo(uint8 toProtocol, uint256 minReceived) external onlyStrategistOrOwner nonReentrant {
-        _settleFees();
         require(toProtocol >= 1 && toProtocol <= 3, "invalid protocol");
         require(toProtocol != activeProtocol, "already active");
+
+        uint256 assetsBefore = totalAssets();
+        require(minReceived >= assetsBefore * 9800 / BPS, "min too low");
+        _settleFees();
 
         uint256 bal = _withdrawAll();
         uint8 from = activeProtocol;
@@ -317,6 +320,7 @@ contract AlphaPrimerVault is
     }
 
     function setGuardian(address g) external onlyOwner {
+        require(g != address(0), "zero guardian");
         emit GuardianUpdated(guardian, g);
         guardian = g;
     }
@@ -337,6 +341,22 @@ contract AlphaPrimerVault is
         depositsPaused = true;
         activeProtocol = 0;
         emit DepositsPaused(true);
+    }
+
+    /// @dev Restores vault after emergencyExit: re-approves protocols,
+    ///      deploys idle USDC, and unpauses deposits.
+    function reactivate(uint8 protocol) external onlyOwner nonReentrant {
+        require(protocol >= 1 && protocol <= 3, "invalid protocol");
+        underlying.approve(address(aavePool), type(uint256).max);
+        underlying.approve(address(compound), type(uint256).max);
+        underlying.approve(address(fluid), type(uint256).max);
+        activeProtocol = protocol;
+        uint256 idle = underlying.balanceOf(address(this));
+        if (idle > accruedFees) {
+            _supplyToActive(idle - accruedFees);
+        }
+        depositsPaused = false;
+        emit DepositsPaused(false);
     }
 
     /// @dev Settles pending fees at old rate before applying new fee params.
