@@ -94,7 +94,9 @@ The vault holds capital in **one protocol at a time**. The strategist calls `reb
 | Contract | Address | Verified |
 |----------|---------|----------|
 | **Vault (Proxy)** | [`0x87Ef5c25203886b1026ad907E7f84fBAABdF1fa9`](https://arbiscan.io/address/0x87Ef5c25203886b1026ad907E7f84fBAABdF1fa9) | Yes |
-| **Implementation** | [`0x4e2DC401A2c825bDE8e8352De7b068d6fa7758c2`](https://arbiscan.io/address/0xd3c15891e905c5d688B2B5bCcE2811724Fe673f1) | Yes |
+| **Implementation** | [`0x4e2DC401A2c825bDE8e8352De7b068d6fa7758c2`](https://arbiscan.io/address/0x4e2DC401A2c825bDE8e8352De7b068d6fa7758c2) | Yes |
+| **Timelock** | [`0xB44fDdE8e835ead11A55DF95B723C5fbd12589e5`](https://arbiscan.io/address/0xB44fDdE8e835ead11A55DF95B723C5fbd12589e5) | 24h delay |
+| **Safe (4/5)** | [`0xa9c6f101fcd47dbdd34b439989d0bd80fdfd8033`](https://arbiscan.io/address/0xa9c6f101fcd47dbdd34b439989d0bd80fdfd8033) | Multisig |
 
 ### Underlying Protocol Addresses
 
@@ -141,7 +143,9 @@ forge test --fork-url https://arb1.arbitrum.io/rpc -vvv
 | `RebalanceTest.t.sol` | 14 | Protocol routing: per-protocol deposit/yield/withdraw, cross-protocol rotation, access control |
 | `MainnetEdgeCases.t.sol` | 5 | Deployed vault: fee compounding, donation attack, multi-user proportionality, full drain, permissions |
 | `FeeSettlement.t.sol` | 6 | Fee logic: deposit clock-reset protection, exit fee settlement, harvest regression, Fluid slippage |
-| **Total** | **46** | |
+| `V34Verification.t.sol` | 16 | Guardian, view accuracy, mgmt fee, approve revocation, rebalance slippage |
+| `V35Hardening.t.sol` | 20 | minReceived floor, reactivate cycle, Fluid partial withdraw, unpause guard |
+| **Total** | **77** | |
 
 ### Deploy
 
@@ -212,6 +216,8 @@ See `bot/` directory for setup instructions.
 
 | Version | Changes |
 |---------|---------|
+| 3.5.2 | setFees nonReentrant, unpause guard when protocol idle, ownership transferred to Timelock+Safe |
+| 3.5.1 | Fluid partial withdraw fix (fluid.withdraw instead of manual share calc), HWM underflow guard, guardian separated from owner |
 | 3.5.0 | minReceived floor (98% minimum), setGuardian(0) blocked, reactivate() for post-emergency recovery, highWaterMark max-only (no downward reset) |
 | 3.4.0 | Guardian role (instant emergency pause), accurate ERC-4626 views via pending fee reflection, mgmt fee accrues in flat markets, emergency exit revokes approvals, rebalance slippage protection (off-chain minReceived), Fluid 3-arg deposit |
 | 3.3.0 | Fee settlement on every entry/exit via `_settleFees()`, Fluid slippage protection (0.5% bound), `MAX_SLIPPAGE_BPS` constant |
