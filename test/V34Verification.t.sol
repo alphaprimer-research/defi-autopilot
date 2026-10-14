@@ -110,7 +110,7 @@ contract V34Verification is Test {
         assertGt(max, 0, "maxWithdraw should be positive");
         vm.prank(alice);
         vault.withdraw(max, alice, alice);
-        // no revert = L-07 fixed. dust shares may remain (ERC-4626 rounding).
+        // no revert = success. dust shares may remain (ERC-4626 rounding).
     }
 
     // ── previewRedeem accuracy ─────────────────────

@@ -198,7 +198,7 @@ contract V35Hardening is Test {
         assertEq(vault.balanceOf(alice), 0);
     }
 
-    // ── Fluid partial withdraw (L-11 fix) ──────────
+    // ── Fluid partial withdraw ──────────────────────
 
     function test_fluid_partial_withdraw_1_usdc() public {
         _deposit(5_000e6);
@@ -246,7 +246,7 @@ contract V35Hardening is Test {
         assertEq(vault.balanceOf(alice), 0);
     }
 
-    // ── withdraw(totalAssets()) no underflow (L-12) ─
+    // ── withdraw(totalAssets()) no underflow ─────────
 
     function test_withdraw_total_assets_no_panic() public {
         _deposit(5_000e6);
